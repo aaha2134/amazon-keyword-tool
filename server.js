@@ -7,6 +7,27 @@ const PORT = 3000;
 
 app.use(express.static(path.join(__dirname, 'public')));
 
+// Amazon JP オートコンプリート候補 (Google Suggest経由)
+app.get('/api/suggest', async (req, res) => {
+  const q = req.query.q;
+  if (!q) return res.json({ suggestions: [] });
+
+  try {
+    const url = `https://suggestqueries.google.com/complete/search?output=toolbar&hl=ja&q=${encodeURIComponent('amazon ' + q)}&gl=jp`;
+    const response = await fetch(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0', 'Accept-Language': 'ja-JP,ja;q=0.9' }
+    });
+    const xml = await response.text();
+    const matches = [...xml.matchAll(/data="([^"]+)"/g)];
+    const suggestions = matches
+      .map(m => m[1].replace(/^amazon\s*/i, '').trim())
+      .filter(s => s.length > 0);
+    res.json({ suggestions: [...new Set(suggestions)].slice(0, 10) });
+  } catch (e) {
+    res.json({ suggestions: [] });
+  }
+});
+
 // Google Suggest を使ったAmazonキーワード取得
 app.get('/api/keywords', async (req, res) => {
   const keyword = req.query.q;

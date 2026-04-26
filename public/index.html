@@ -35,8 +35,12 @@
     }
     .search-box label { display: block; font-weight: 600; margin-bottom: 10px; font-size: 15px; }
     .search-row { display: flex; gap: 10px; }
-    .search-row input {
+    .search-input-wrap {
       flex: 1;
+      position: relative;
+    }
+    .search-row input {
+      width: 100%;
       padding: 12px 16px;
       border: 2px solid #ddd;
       border-radius: 8px;
@@ -45,6 +49,39 @@
       transition: border-color 0.2s;
     }
     .search-row input:focus { border-color: #ff9900; }
+
+    /* オートコンプリートドロップダウン */
+    .suggest-dropdown {
+      display: none;
+      position: absolute;
+      top: calc(100% + 4px);
+      left: 0;
+      right: 0;
+      background: white;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+      z-index: 100;
+      overflow: hidden;
+    }
+    .suggest-dropdown.show { display: block; }
+    .suggest-item {
+      padding: 11px 16px;
+      cursor: pointer;
+      font-size: 15px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      border-bottom: 1px solid #f5f5f5;
+    }
+    .suggest-item:last-child { border-bottom: none; }
+    .suggest-item:hover, .suggest-item.active { background: #fffbf2; }
+    .suggest-item::before {
+      content: '🔍';
+      font-size: 13px;
+      opacity: 0.5;
+      flex-shrink: 0;
+    }
     .search-row button {
       padding: 12px 28px;
       background: #ff9900;
@@ -174,7 +211,10 @@
   <div class="search-box">
     <label>キーワードを入力</label>
     <div class="search-row">
-      <input type="text" id="searchInput" placeholder="例: プロテイン、ヨガマット、加湿器..." />
+      <div class="search-input-wrap">
+        <input type="text" id="searchInput" placeholder="例: プロテイン、ヨガマット、加湿器..." autocomplete="off" />
+        <div class="suggest-dropdown" id="suggestDropdown"></div>
+      </div>
       <button id="searchBtn" onclick="search()">検索</button>
     </div>
   </div>
@@ -219,6 +259,8 @@
 
 <script>
   let currentTab = 'keywords';
+  let suggestIndex = -1;
+  let suggestTimer = null;
 
   function switchTab(tab) {
     currentTab = tab;
@@ -229,9 +271,83 @@
     document.getElementById(tab + '-panel').classList.add('active');
   }
 
-  document.getElementById('searchInput').addEventListener('keydown', e => {
-    if (e.key === 'Enter') search();
+  const input = document.getElementById('searchInput');
+  const dropdown = document.getElementById('suggestDropdown');
+
+  // 入力のたびに候補を取得（200msデバウンス）
+  input.addEventListener('input', () => {
+    clearTimeout(suggestTimer);
+    const q = input.value.trim();
+    if (!q) { closeSuggest(); return; }
+    suggestTimer = setTimeout(() => fetchSuggestions(q), 200);
   });
+
+  input.addEventListener('keydown', e => {
+    const items = dropdown.querySelectorAll('.suggest-item');
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      suggestIndex = Math.min(suggestIndex + 1, items.length - 1);
+      updateActive(items);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      suggestIndex = Math.max(suggestIndex - 1, -1);
+      updateActive(items);
+    } else if (e.key === 'Enter') {
+      if (suggestIndex >= 0 && items[suggestIndex]) {
+        selectSuggest(items[suggestIndex].dataset.value);
+      } else {
+        closeSuggest();
+        search();
+      }
+    } else if (e.key === 'Escape') {
+      closeSuggest();
+    }
+  });
+
+  // フォーカスが外れたら候補を閉じる
+  document.addEventListener('click', e => {
+    if (!e.target.closest('.search-input-wrap')) closeSuggest();
+  });
+
+  function updateActive(items) {
+    items.forEach((el, i) => el.classList.toggle('active', i === suggestIndex));
+    if (suggestIndex >= 0 && items[suggestIndex]) {
+      input.value = items[suggestIndex].dataset.value;
+    }
+  }
+
+  async function fetchSuggestions(q) {
+    try {
+      const res = await fetch('/api/suggest?q=' + encodeURIComponent(q));
+      const data = await res.json();
+      showSuggestions(data.suggestions || []);
+    } catch {
+      closeSuggest();
+    }
+  }
+
+  function showSuggestions(suggestions) {
+    suggestIndex = -1;
+    if (!suggestions.length) { closeSuggest(); return; }
+    dropdown.innerHTML = suggestions.map(s =>
+      `<div class="suggest-item" data-value="${s.replace(/"/g,'&quot;')}" onclick="selectSuggest('${s.replace(/'/g,"\\'")}')">
+        ${s}
+      </div>`
+    ).join('');
+    dropdown.classList.add('show');
+  }
+
+  function selectSuggest(value) {
+    input.value = value;
+    closeSuggest();
+    search();
+  }
+
+  function closeSuggest() {
+    dropdown.classList.remove('show');
+    dropdown.innerHTML = '';
+    suggestIndex = -1;
+  }
 
   async function search() {
     const q = document.getElementById('searchInput').value.trim();
