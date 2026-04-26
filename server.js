@@ -242,36 +242,72 @@ function parseProducts(html, categoryId, categoryName, subcatName, pageOffset = 
   }));
 }
 
-// 1カテゴリ分（最大100件）を取得。subcatId があればサブカテゴリURL
-async function fetchCategory(period, categoryId, subcatId = '') {
+const FETCH_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+  'Accept-Language': 'ja-JP,ja;q=0.9',
+  'Accept-Encoding': 'identity',
+  'Accept': 'text/html',
+};
+
+// 1ページ取得
+async function fetchPage(period, categoryId, subcatId, pg) {
   const catName    = CATEGORIES[categoryId];
   const subcatName = subcatId
     ? (SUBCATEGORIES[categoryId] || []).find(s => s.id === subcatId)?.name || ''
     : '';
-  const headers = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Accept-Language': 'ja-JP,ja;q=0.9',
-    'Accept-Encoding': 'identity',
-    'Accept': 'text/html',
-  };
+  const basePath = subcatId
+    ? `${period}/${categoryId}/${subcatId}`
+    : `${period}/${categoryId}`;
+  const url = `https://www.amazon.co.jp/gp/${basePath}/ref=zg_bs_pg_${pg}?ie=UTF8&pg=${pg}`;
+  try {
+    const res = await fetch(url, { headers: FETCH_HEADERS });
+    const html = await res.text();
+    return parseProducts(html, categoryId, catName, subcatName, (pg - 1) * 50);
+  } catch (e) {
+    return [];
+  }
+}
 
+// 1カテゴリ分を取得（ページ数指定）
+async function fetchCategory(period, categoryId, subcatId = '', pages = 2) {
   const products = [];
-  for (const pg of [1, 2]) {
-    const basePath = subcatId
-      ? `${period}/${categoryId}/${subcatId}`
-      : `${period}/${categoryId}`;
-    const url = `https://www.amazon.co.jp/gp/${basePath}/ref=zg_bs_pg_${pg}?ie=UTF8&pg=${pg}`;
-    try {
-      const res = await fetch(url, { headers });
-      const html = await res.text();
-      const items = parseProducts(html, categoryId, catName, subcatName, (pg - 1) * 50);
-      products.push(...items);
-      await new Promise(r => setTimeout(r, 800));
-    } catch (e) {
-      // ページ取得失敗は無視して続行
-    }
+  for (let pg = 1; pg <= pages; pg++) {
+    const items = await fetchPage(period, categoryId, subcatId, pg);
+    products.push(...items);
+    if (pg < pages) await new Promise(r => setTimeout(r, 500));
   }
   return products;
+}
+
+// 並列実行（concurrency制限付き）
+async function runConcurrent(tasks, concurrency = 3) {
+  const results = [];
+  for (let i = 0; i < tasks.length; i += concurrency) {
+    const batch = tasks.slice(i, i + concurrency);
+    const batchResults = await Promise.all(batch.map(fn => fn()));
+    results.push(...batchResults.flat());
+    // バッチ間で少し待つ
+    if (i + concurrency < tasks.length) await new Promise(r => setTimeout(r, 600));
+  }
+  return results;
+}
+
+// 取得対象タスク一覧を生成
+function buildFetchTasks(period, pages, includeSubcats) {
+  const tasks = [];
+  for (const catId of Object.keys(CATEGORIES)) {
+    for (let pg = 1; pg <= pages; pg++) {
+      tasks.push(() => fetchPage(period, catId, '', pg));
+    }
+    if (includeSubcats) {
+      for (const sub of SUBCATEGORIES[catId] || []) {
+        for (let pg = 1; pg <= pages; pg++) {
+          tasks.push(() => fetchPage(period, catId, sub.id, pg));
+        }
+      }
+    }
+  }
+  return tasks;
 }
 
 // Amazon トレンドランキング取得（単一カテゴリ・サブカテゴリ対応）
@@ -279,34 +315,42 @@ app.get('/api/trends', async (req, res) => {
   const category = req.query.category || 'hpc';
   const period   = req.query.period   || 'bestsellers';
   const subcat   = req.query.subcat   || '';
+  const pages    = Math.min(5, Math.max(1, parseInt(req.query.pages) || 2));
 
   if (!CATEGORIES[category] || !['bestsellers','new-releases'].includes(period)) {
     return res.status(400).json({ error: 'invalid parameter' });
   }
 
   try {
-    const products = await fetchCategory(period, category, subcat);
+    const products = await fetchCategory(period, category, subcat, pages);
     res.json({ products, category, period, subcat });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
 });
 
-// 全カテゴリ一括取得（最大1000件）＋ CSV
+// 全カテゴリ一括取得（サブカテゴリ・ページ数指定対応）
 app.get('/api/trends/all', async (req, res) => {
-  const period = req.query.period || 'bestsellers';
+  const period         = req.query.period        || 'bestsellers';
+  const pages          = Math.min(5, Math.max(1, parseInt(req.query.pages) || 2));
+  const includeSubcats = req.query.subcats === '1';
+  const fmt            = req.query.fmt           || 'json';
+
   if (!['bestsellers','new-releases'].includes(period)) {
     return res.status(400).json({ error: 'invalid parameter' });
   }
 
-  const fmt = req.query.fmt || 'json'; // json | csv
-
   try {
-    const allProducts = [];
-    for (const catId of Object.keys(CATEGORIES)) {
-      const items = await fetchCategory(period, catId);
-      allProducts.push(...items);
-    }
+    const tasks = buildFetchTasks(period, pages, includeSubcats);
+    const allProducts = await runConcurrent(tasks, 3);
+
+    // ASIN重複除去
+    const seen = new Set();
+    const unique = allProducts.filter(p => {
+      if (!p.asin || seen.has(p.asin)) return false;
+      seen.add(p.asin);
+      return true;
+    });
 
     if (fmt === 'csv') {
       const periodLabel = period === 'bestsellers' ? '売れ筋' : '新着ヒット';
@@ -316,17 +360,16 @@ app.get('/api/trends/all', async (req, res) => {
       res.setHeader('Content-Type', 'text/csv; charset=utf-8');
       res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`);
 
-      // BOM付きUTF-8（Excelで文字化けしない）
       const BOM = '\uFEFF';
       const header = 'カテゴリ,順位,ASIN,商品名,価格,評価,レビュー件数,URL\n';
-      const rows = allProducts.map(p => {
-        const title = p.title.replace(/"/g, '""');
+      const rows = unique.map(p => {
+        const title = (p.title || '').replace(/"/g, '""');
         return `"${p.category_name}",${p.rank},"${p.asin}","${title}","${p.price}","${p.rating}","${p.review_count}","${p.url}"`;
       }).join('\n');
 
       res.send(BOM + header + rows);
     } else {
-      res.json({ products: allProducts, total: allProducts.length });
+      res.json({ products: unique, total: unique.length });
     }
   } catch (e) {
     res.status(500).json({ error: e.message });

@@ -216,13 +216,20 @@
     </div>
 
     <div class="control-group" style="margin-left:auto">
-      <label>CSVダウンロード</label>
-      <div style="display:flex;gap:8px">
+      <label>一括取得モード</label>
+      <select id="bulkModeSelect" style="padding:10px 14px;border:2px solid #ddd;border-radius:8px;font-size:14px;outline:none;cursor:pointer;background:white;">
+        <option value="1000">標準 〜1,000件（メインカテゴリ×2P）</option>
+        <option value="3000">中量 〜3,000件（メイン×5P）</option>
+        <option value="5000">大量 〜5,000件（メイン+サブ×2P）</option>
+        <option value="10000">超大量 〜10,000件（メイン+サブ×3P）</option>
+        <option value="15000">最大 〜15,000件（全カテゴリ×5P）</option>
+      </select>
+      <div style="display:flex;gap:8px;margin-top:8px">
         <button class="btn-csv btn-single-csv" onclick="downloadSingleCsv()" title="表示中カテゴリのみ">
           📥 このカテゴリ
         </button>
-        <button class="btn-csv btn-all-csv" id="btnAllCsv" onclick="downloadAllCsv()" title="全10カテゴリ・最大1000件">
-          📦 全カテゴリ1000件
+        <button class="btn-csv btn-all-csv" id="btnAllCsv" onclick="downloadAllCsv()">
+          📦 一括取得・CSV
         </button>
       </div>
       <div class="progress-bar-wrap" id="progressWrap">
@@ -374,57 +381,84 @@
     triggerDownload(BOM + header + rows, `amazon_${periodLabel}_${catName}_${date}.csv`);
   }
 
-  // 全カテゴリ一括CSVダウンロード
+  // モード設定からパラメータを決定
+  function getBulkParams() {
+    const mode = document.getElementById('bulkModeSelect').value;
+    switch (mode) {
+      case '1000':  return { pages: 2, subcats: '0' };
+      case '3000':  return { pages: 5, subcats: '0' };
+      case '5000':  return { pages: 2, subcats: '1' };
+      case '10000': return { pages: 3, subcats: '1' };
+      case '15000': return { pages: 5, subcats: '1' };
+      default:      return { pages: 2, subcats: '0' };
+    }
+  }
+
+  // 全カテゴリ一括CSVダウンロード（サーバー並列取得）
   async function downloadAllCsv() {
     const btn = document.getElementById('btnAllCsv');
     btn.disabled = true;
     btn.textContent = '取得中...';
 
     const progressWrap = document.getElementById('progressWrap');
-    const progressBar = document.getElementById('progressBar');
-    const progressLabel = document.getElementById('progressLabel');
+    const progressBar  = document.getElementById('progressBar');
+    const progressLabel= document.getElementById('progressLabel');
     progressWrap.style.display = 'block';
-    progressLabel.textContent = '';
+    progressBar.style.width = '0%';
 
-    const allCategories = Object.keys(categoryNames);
-    const allProducts = [];
-    const periodLabel = currentPeriod === 'bestsellers' ? '売れ筋' : '新着ヒット';
+    const { pages, subcats } = getBulkParams();
+    const mode = document.getElementById('bulkModeSelect').value;
+    const estSecs = subcats === '1'
+      ? Math.round((60 * pages * 0.6) / 3)
+      : Math.round((10 * pages * 0.6) / 3);
+    progressLabel.textContent = `サーバーで並列取得中... 推定 ${estSecs}〜${estSecs*2}秒`;
 
-    for (let i = 0; i < allCategories.length; i++) {
-      const catId = allCategories[i];
-      const catName = categoryNames[catId];
-      progressLabel.textContent = `${catName} を取得中... (${i+1}/${allCategories.length})`;
-      progressBar.style.width = `${Math.round((i / allCategories.length) * 100)}%`;
+    // プログレスバーをアニメーション
+    let fakeProgress = 0;
+    const ticker = setInterval(() => {
+      fakeProgress = Math.min(fakeProgress + 1, 90);
+      progressBar.style.width = fakeProgress + '%';
+    }, estSecs * 10);
 
-      try {
-        const res = await fetch(`/api/trends?category=${catId}&period=${currentPeriod}`);
-        const data = await res.json();
-        if (data.products) allProducts.push(...data.products);
-      } catch(e) { /* skip */ }
+    try {
+      const params = new URLSearchParams({
+        period: currentPeriod,
+        pages,
+        subcats,
+        fmt: 'csv',
+      });
+      const res = await fetch(`/api/trends/all?${params}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+      const blob = await res.blob();
+      clearInterval(ticker);
+      progressBar.style.width = '100%';
+
+      // ファイル名をレスポンスヘッダーから取得
+      const disposition = res.headers.get('content-disposition') || '';
+      const fnMatch = disposition.match(/filename\*?=(?:UTF-8'')?([^;\n]+)/i);
+      const filename = fnMatch ? decodeURIComponent(fnMatch[1].replace(/"/g,'')) : `amazon_trend_${mode}件.csv`;
+
+      // ダウンロード
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = filename; a.click();
+      URL.revokeObjectURL(url);
+
+      // 件数を表示するためにJSONも取得（任意）
+      progressLabel.textContent = `✅ ダウンロード完了！`;
+
+    } catch(e) {
+      clearInterval(ticker);
+      progressLabel.textContent = `❌ エラー: ${e.message}`;
     }
-
-    progressBar.style.width = '100%';
-    progressLabel.textContent = `完了！ ${allProducts.length}件取得`;
-
-    // CSVとしてダウンロード
-    const date = new Date().toISOString().slice(0,10);
-    const BOM = '\uFEFF';
-    const header = 'カテゴリ,順位,ASIN,商品名,価格,評価,レビュー件数,URL\n';
-    const rows = allProducts.map(p =>
-      `"${p.category_name}",${p.rank},"${p.asin}","${(p.title||'').replace(/"/g,'""')}","${p.price}","${p.rating}","${p.review_count}","${p.url}"`
-    ).join('\n');
-
-    triggerDownload(BOM + header + rows, `amazon_trend_全カテゴリ_${periodLabel}_${date}.csv`);
-
-    // 画面にも表示
-    renderTable(allProducts, true);
 
     setTimeout(() => {
       progressWrap.style.display = 'none';
       progressLabel.textContent = '';
       btn.disabled = false;
-      btn.textContent = '📦 全カテゴリ1000件';
-    }, 3000);
+      btn.textContent = '📦 一括取得・CSV';
+    }, 4000);
   }
 
   function triggerDownload(csvContent, filename) {
