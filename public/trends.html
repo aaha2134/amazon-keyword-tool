@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Amazon トレンドランキング</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Helvetica Neue', Arial, sans-serif; background: #f0f2f5; color: #333; }
+    header {
+      background: #232f3e;
+      color: white;
+      padding: 16px 32px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    header h1 { font-size: 20px; font-weight: 600; }
+    header .nav a { color: #ff9900; text-decoration: none; font-size: 14px; margin-left: 20px; }
+    header .nav a:hover { text-decoration: underline; }
+    .container { max-width: 1200px; margin: 32px auto; padding: 0 20px; }
+
+    .controls {
+      background: white;
+      border-radius: 12px;
+      padding: 24px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+      margin-bottom: 24px;
+      display: flex;
+      gap: 16px;
+      align-items: flex-end;
+      flex-wrap: wrap;
+    }
+    .control-group { display: flex; flex-direction: column; gap: 6px; }
+    .control-group label { font-weight: 600; font-size: 13px; color: #555; }
+    .control-group select {
+      padding: 10px 14px;
+      border: 2px solid #ddd;
+      border-radius: 8px;
+      font-size: 15px;
+      outline: none;
+      cursor: pointer;
+      background: white;
+    }
+    .control-group select:focus { border-color: #ff9900; }
+
+    .period-tabs { display: flex; gap: 8px; }
+    .period-btn {
+      padding: 10px 24px;
+      border: 2px solid #ddd;
+      border-radius: 8px;
+      background: white;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      color: #666;
+      transition: all 0.2s;
+      text-align: center;
+    }
+    .period-btn.active { background: #ff9900; border-color: #ff9900; color: white; }
+    .period-btn:hover:not(.active) { border-color: #ff9900; color: #ff9900; }
+    .period-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .btn-csv {
+      padding: 10px 20px;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .btn-single-csv { background: #e8f5e9; color: #2e7d32; }
+    .btn-single-csv:hover { background: #c8e6c9; }
+    .btn-all-csv { background: #232f3e; color: white; }
+    .btn-all-csv:hover { background: #37475a; }
+    .btn-all-csv:disabled { background: #999; cursor: not-allowed; }
+
+    .progress-bar-wrap {
+      display: none;
+      background: #f0f0f0;
+      border-radius: 8px;
+      overflow: hidden;
+      height: 8px;
+      margin-top: 8px;
+      width: 100%;
+    }
+    .progress-bar { height: 100%; background: #ff9900; transition: width 0.3s; }
+    .progress-label { font-size: 12px; color: #666; margin-top: 4px; }
+
+    .results {
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+      overflow: hidden;
+    }
+    .results-header {
+      padding: 18px 24px;
+      border-bottom: 1px solid #eee;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .results-header h2 { font-size: 16px; font-weight: 700; color: #232f3e; }
+    .header-right { display: flex; align-items: center; gap: 12px; }
+    .updated { font-size: 12px; color: #999; }
+    .count-badge { background: #fff3cd; color: #856404; padding: 4px 10px; border-radius: 12px; font-size: 13px; font-weight: 600; }
+
+    table { width: 100%; border-collapse: collapse; }
+    th {
+      text-align: left;
+      padding: 12px 16px;
+      background: #f8f9fa;
+      font-size: 12px;
+      font-weight: 700;
+      color: #666;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      border-bottom: 2px solid #eee;
+    }
+    td { padding: 12px 16px; border-bottom: 1px solid #f0f0f0; vertical-align: middle; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: #fffbf2; }
+
+    .rank-num { width: 50px; font-size: 20px; font-weight: 800; color: #232f3e; text-align: center; }
+    .rank-1 { color: #B8860B; }
+    .rank-2 { color: #808080; }
+    .rank-3 { color: #CD7F32; }
+
+    .cat-badge {
+      font-size: 11px;
+      background: #e8f4fd;
+      color: #0066c0;
+      padding: 2px 7px;
+      border-radius: 10px;
+      display: inline-block;
+      margin-bottom: 4px;
+    }
+    .product-title { max-width: 400px; line-height: 1.5; font-size: 14px; }
+    .product-title a { color: #0066c0; text-decoration: none; }
+    .product-title a:hover { text-decoration: underline; }
+    .asin-tag {
+      font-family: monospace;
+      font-size: 11px;
+      background: #f0f0f0;
+      padding: 2px 6px;
+      border-radius: 4px;
+      color: #666;
+      display: inline-block;
+      margin-top: 3px;
+    }
+    .price { font-weight: 700; color: #B12704; font-size: 15px; white-space: nowrap; }
+    .rating { color: #ff9900; font-weight: 600; white-space: nowrap; }
+
+    .loading { text-align: center; padding: 60px; color: #999; font-size: 15px; }
+    .spinner {
+      display: inline-block;
+      width: 20px; height: 20px;
+      border: 3px solid #ddd;
+      border-top-color: #ff9900;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin-left: 10px;
+      vertical-align: middle;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .note { padding: 12px 24px; font-size: 12px; color: #999; border-top: 1px solid #f0f0f0; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>Amazon トレンドランキング</h1>
+  <div class="nav">
+    <a href="/">キーワードリサーチに戻る</a>
+  </div>
+</header>
+
+<div class="container">
+  <div class="controls">
+    <div class="control-group">
+      <label>カテゴリ</label>
+      <select id="categorySelect" onchange="load()">
+        <option value="hpc">ドラッグストア・ヘルスケア</option>
+        <option value="beauty">コスメ・美容</option>
+        <option value="electronics">家電・カメラ</option>
+        <option value="computers">パソコン・周辺機器</option>
+        <option value="kitchen">ホーム・キッチン</option>
+        <option value="sports">スポーツ・アウトドア</option>
+        <option value="toys">おもちゃ</option>
+        <option value="food-beverage">食品・飲料</option>
+        <option value="books">本</option>
+        <option value="clothing">服・ファッション</option>
+      </select>
+    </div>
+
+    <div class="control-group">
+      <label>種別</label>
+      <div class="period-tabs">
+        <button class="period-btn active" id="btn-bestsellers" onclick="setPeriod('bestsellers', this)">
+          売れ筋<br><small style="font-weight:400;font-size:11px">Daily</small>
+        </button>
+        <button class="period-btn" id="btn-new-releases" onclick="setPeriod('new-releases', this)">
+          新着ヒット<br><small style="font-weight:400;font-size:11px">Monthly</small>
+        </button>
+      </div>
+    </div>
+
+    <div class="control-group" style="margin-left:auto">
+      <label>CSVダウンロード</label>
+      <div style="display:flex;gap:8px">
+        <button class="btn-csv btn-single-csv" onclick="downloadSingleCsv()" title="表示中カテゴリのみ">
+          📥 このカテゴリ
+        </button>
+        <button class="btn-csv btn-all-csv" id="btnAllCsv" onclick="downloadAllCsv()" title="全10カテゴリ・最大1000件">
+          📦 全カテゴリ1000件
+        </button>
+      </div>
+      <div class="progress-bar-wrap" id="progressWrap">
+        <div class="progress-bar" id="progressBar" style="width:0%"></div>
+      </div>
+      <div class="progress-label" id="progressLabel"></div>
+    </div>
+  </div>
+
+  <div class="results">
+    <div class="results-header">
+      <h2 id="resultsTitle">ドラッグストア・ヘルスケア — 売れ筋ランキング</h2>
+      <div class="header-right">
+        <span class="count-badge" id="countBadge" style="display:none"></span>
+        <span class="updated" id="updatedTime"></span>
+      </div>
+    </div>
+    <div id="tableArea">
+      <div class="loading">読み込み中 <span class="spinner"></span></div>
+    </div>
+    <p class="note">※ 売れ筋はAmazonが時間単位で更新。新着ヒットは過去30日以内の新商品。全カテゴリCSVは取得に約2〜3分かかります。</p>
+  </div>
+</div>
+
+<script>
+  let currentPeriod = 'bestsellers';
+  let currentProducts = [];
+
+  const categoryNames = {
+    hpc: 'ドラッグストア・ヘルスケア',
+    beauty: 'コスメ・美容',
+    electronics: '家電・カメラ',
+    computers: 'パソコン・周辺機器',
+    kitchen: 'ホーム・キッチン',
+    sports: 'スポーツ・アウトドア',
+    toys: 'おもちゃ',
+    'food-beverage': '食品・飲料',
+    books: '本',
+    clothing: '服・ファッション'
+  };
+
+  const periodNames = {
+    bestsellers: '売れ筋ランキング',
+    'new-releases': '新着ヒットランキング'
+  };
+
+  function setPeriod(period, btn) {
+    currentPeriod = period;
+    document.querySelectorAll('.period-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    load();
+  }
+
+  async function load() {
+    const category = document.getElementById('categorySelect').value;
+    const catName = categoryNames[category];
+    document.getElementById('resultsTitle').textContent = `${catName} — ${periodNames[currentPeriod]}`;
+    document.getElementById('updatedTime').textContent = '';
+    document.getElementById('countBadge').style.display = 'none';
+    document.getElementById('tableArea').innerHTML = '<div class="loading">読み込み中 <span class="spinner"></span></div>';
+    currentProducts = [];
+
+    try {
+      const res = await fetch(`/api/trends?category=${category}&period=${currentPeriod}`);
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      currentProducts = data.products || [];
+      renderTable(currentProducts, false);
+    } catch(e) {
+      document.getElementById('tableArea').innerHTML = `<div class="loading" style="color:#e00">エラー: ${escHtml(e.message)}</div>`;
+    }
+  }
+
+  function renderTable(products, showCategory) {
+    if (!products.length) {
+      document.getElementById('tableArea').innerHTML = '<div class="loading" style="color:#ccc">データなし</div>';
+      return;
+    }
+
+    document.getElementById('countBadge').textContent = `${products.length}件`;
+    document.getElementById('countBadge').style.display = '';
+    document.getElementById('updatedTime').textContent = `取得: ${new Date().toLocaleTimeString('ja-JP')}`;
+
+    let html = `<table><thead><tr>
+      <th style="text-align:center">順位</th>
+      ${showCategory ? '<th>カテゴリ</th>' : ''}
+      <th>商品名</th>
+      <th>価格</th>
+      <th>評価</th>
+    </tr></thead><tbody>`;
+
+    products.forEach(p => {
+      const rankClass = p.rank <= 3 && !showCategory ? `rank-${p.rank}` : '';
+      const medal = !showCategory && p.rank === 1 ? '🥇' : !showCategory && p.rank === 2 ? '🥈' : !showCategory && p.rank === 3 ? '🥉' : '';
+      html += `<tr>
+        <td class="rank-num ${rankClass}">${medal || '#' + p.rank}</td>
+        ${showCategory ? `<td><span class="cat-badge">${escHtml(p.category_name)}</span></td>` : ''}
+        <td class="product-title">
+          <a href="${escHtml(p.url)}" target="_blank">${escHtml(p.title)}</a>
+          <br><span class="asin-tag">${p.asin}</span>
+        </td>
+        <td class="price">${escHtml(p.price)}</td>
+        <td class="rating">${p.rating !== '-' ? '★' + p.rating : '-'}</td>
+      </tr>`;
+    });
+
+    html += '</tbody></table>';
+    document.getElementById('tableArea').innerHTML = html;
+  }
+
+  // 表示中カテゴリのCSVダウンロード
+  function downloadSingleCsv() {
+    if (!currentProducts.length) return alert('先に検索してください');
+    const category = document.getElementById('categorySelect').value;
+    const catName = categoryNames[category];
+    const periodLabel = currentPeriod === 'bestsellers' ? '売れ筋' : '新着ヒット';
+    const date = new Date().toISOString().slice(0,10);
+
+    const BOM = '\uFEFF';
+    const header = 'カテゴリ,順位,ASIN,商品名,価格,評価,URL\n';
+    const rows = currentProducts.map(p =>
+      `"${catName}",${p.rank},"${p.asin}","${(p.title||'').replace(/"/g,'""')}","${p.price}","${p.rating}","${p.url}"`
+    ).join('\n');
+
+    triggerDownload(BOM + header + rows, `amazon_${periodLabel}_${catName}_${date}.csv`);
+  }
+
+  // 全カテゴリ一括CSVダウンロード
+  async function downloadAllCsv() {
+    const btn = document.getElementById('btnAllCsv');
+    btn.disabled = true;
+    btn.textContent = '取得中...';
+
+    const progressWrap = document.getElementById('progressWrap');
+    const progressBar = document.getElementById('progressBar');
+    const progressLabel = document.getElementById('progressLabel');
+    progressWrap.style.display = 'block';
+    progressLabel.textContent = '';
+
+    const allCategories = Object.keys(categoryNames);
+    const allProducts = [];
+    const periodLabel = currentPeriod === 'bestsellers' ? '売れ筋' : '新着ヒット';
+
+    for (let i = 0; i < allCategories.length; i++) {
+      const catId = allCategories[i];
+      const catName = categoryNames[catId];
+      progressLabel.textContent = `${catName} を取得中... (${i+1}/${allCategories.length})`;
+      progressBar.style.width = `${Math.round((i / allCategories.length) * 100)}%`;
+
+      try {
+        const res = await fetch(`/api/trends?category=${catId}&period=${currentPeriod}`);
+        const data = await res.json();
+        if (data.products) allProducts.push(...data.products);
+      } catch(e) { /* skip */ }
+    }
+
+    progressBar.style.width = '100%';
+    progressLabel.textContent = `完了！ ${allProducts.length}件取得`;
+
+    // CSVとしてダウンロード
+    const date = new Date().toISOString().slice(0,10);
+    const BOM = '\uFEFF';
+    const header = 'カテゴリ,順位,ASIN,商品名,価格,評価,URL\n';
+    const rows = allProducts.map(p =>
+      `"${p.category_name}",${p.rank},"${p.asin}","${(p.title||'').replace(/"/g,'""')}","${p.price}","${p.rating}","${p.url}"`
+    ).join('\n');
+
+    triggerDownload(BOM + header + rows, `amazon_trend_全カテゴリ_${periodLabel}_${date}.csv`);
+
+    // 画面にも表示
+    renderTable(allProducts, true);
+
+    setTimeout(() => {
+      progressWrap.style.display = 'none';
+      progressLabel.textContent = '';
+      btn.disabled = false;
+      btn.textContent = '📦 全カテゴリ1000件';
+    }, 3000);
+  }
+
+  function triggerDownload(csvContent, filename) {
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function escHtml(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  load();
+</script>
+
+</body>
+</html>
