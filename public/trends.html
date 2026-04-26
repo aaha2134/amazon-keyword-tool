@@ -182,7 +182,7 @@
   <div class="controls">
     <div class="control-group">
       <label>カテゴリ</label>
-      <select id="categorySelect" onchange="load()">
+      <select id="categorySelect" onchange="onCategoryChange()">
         <option value="hpc">ドラッグストア・ヘルスケア</option>
         <option value="beauty">コスメ・美容</option>
         <option value="electronics">家電・カメラ</option>
@@ -193,6 +193,13 @@
         <option value="food-beverage">食品・飲料</option>
         <option value="books">本</option>
         <option value="clothing">服・ファッション</option>
+      </select>
+    </div>
+
+    <div class="control-group">
+      <label>サブカテゴリ</label>
+      <select id="subcatSelect" onchange="load()">
+        <option value="">全体</option>
       </select>
     </div>
 
@@ -269,17 +276,39 @@
     load();
   }
 
+  async function onCategoryChange() {
+    const category = document.getElementById('categorySelect').value;
+    const subcatSel = document.getElementById('subcatSelect');
+    subcatSel.innerHTML = '<option value="">全体</option>';
+    try {
+      const res = await fetch(`/api/subcategories?category=${category}`);
+      const data = await res.json();
+      (data.subcategories || []).forEach(s => {
+        const opt = document.createElement('option');
+        opt.value = s.id;
+        opt.textContent = s.name;
+        subcatSel.appendChild(opt);
+      });
+    } catch(e) { /* サブカテゴリ取得失敗は無視 */ }
+    load();
+  }
+
   async function load() {
     const category = document.getElementById('categorySelect').value;
-    const catName = categoryNames[category];
-    document.getElementById('resultsTitle').textContent = `${catName} — ${periodNames[currentPeriod]}`;
+    const subcat   = document.getElementById('subcatSelect').value;
+    const subcatText = document.getElementById('subcatSelect').selectedOptions[0]?.textContent || '';
+    const catName  = categoryNames[category];
+    const titleLabel = subcat ? `${catName} › ${subcatText}` : catName;
+
+    document.getElementById('resultsTitle').textContent = `${titleLabel} — ${periodNames[currentPeriod]}`;
     document.getElementById('updatedTime').textContent = '';
     document.getElementById('countBadge').style.display = 'none';
     document.getElementById('tableArea').innerHTML = '<div class="loading">読み込み中 <span class="spinner"></span></div>';
     currentProducts = [];
 
     try {
-      const res = await fetch(`/api/trends?category=${category}&period=${currentPeriod}`);
+      const params = new URLSearchParams({ category, period: currentPeriod, subcat });
+      const res = await fetch(`/api/trends?${params}`);
       const data = await res.json();
       if (data.error) throw new Error(data.error);
       currentProducts = data.products || [];
@@ -305,6 +334,7 @@
       <th>商品名</th>
       <th>価格</th>
       <th>評価</th>
+      <th>レビュー件数</th>
     </tr></thead><tbody>`;
 
     products.forEach(p => {
@@ -319,6 +349,7 @@
         </td>
         <td class="price">${escHtml(p.price)}</td>
         <td class="rating">${p.rating !== '-' ? '★' + p.rating : '-'}</td>
+        <td style="white-space:nowrap;color:#555;">${p.review_count !== '-' ? p.review_count + '件' : '-'}</td>
       </tr>`;
     });
 
@@ -335,9 +366,9 @@
     const date = new Date().toISOString().slice(0,10);
 
     const BOM = '\uFEFF';
-    const header = 'カテゴリ,順位,ASIN,商品名,価格,評価,URL\n';
+    const header = 'カテゴリ,順位,ASIN,商品名,価格,評価,レビュー件数,URL\n';
     const rows = currentProducts.map(p =>
-      `"${catName}",${p.rank},"${p.asin}","${(p.title||'').replace(/"/g,'""')}","${p.price}","${p.rating}","${p.url}"`
+      `"${p.category_name || catName}",${p.rank},"${p.asin}","${(p.title||'').replace(/"/g,'""')}","${p.price}","${p.rating}","${p.review_count}","${p.url}"`
     ).join('\n');
 
     triggerDownload(BOM + header + rows, `amazon_${periodLabel}_${catName}_${date}.csv`);
@@ -378,9 +409,9 @@
     // CSVとしてダウンロード
     const date = new Date().toISOString().slice(0,10);
     const BOM = '\uFEFF';
-    const header = 'カテゴリ,順位,ASIN,商品名,価格,評価,URL\n';
+    const header = 'カテゴリ,順位,ASIN,商品名,価格,評価,レビュー件数,URL\n';
     const rows = allProducts.map(p =>
-      `"${p.category_name}",${p.rank},"${p.asin}","${(p.title||'').replace(/"/g,'""')}","${p.price}","${p.rating}","${p.url}"`
+      `"${p.category_name}",${p.rank},"${p.asin}","${(p.title||'').replace(/"/g,'""')}","${p.price}","${p.rating}","${p.review_count}","${p.url}"`
     ).join('\n');
 
     triggerDownload(BOM + header + rows, `amazon_trend_全カテゴリ_${periodLabel}_${date}.csv`);

@@ -137,29 +137,117 @@ const CATEGORIES = {
   clothing:       '服・ファッション',
 };
 
+// サブカテゴリ: { カテゴリID: [ { id: nodeId, name: 表示名 } ] }
+const SUBCATEGORIES = {
+  hpc: [
+    { id: '76461051',   name: 'サプリメント・ビタミン' },
+    { id: '76535051',   name: 'ダイエット・健康食品' },
+    { id: '76534051',   name: '医薬品・衛生用品' },
+    { id: '3776271',    name: 'スポーツ栄養食品' },
+    { id: '76542051',   name: '健康器具・計測器' },
+  ],
+  beauty: [
+    { id: '2016929051', name: 'スキンケア・フェイスケア' },
+    { id: '2016930051', name: 'メイクアップ' },
+    { id: '2016931051', name: 'ヘアケア・スタイリング' },
+    { id: '2016932051', name: 'ボディケア' },
+    { id: '2016933051', name: '香水・フレグランス' },
+  ],
+  electronics: [
+    { id: '2127214051', name: 'テレビ・レコーダー' },
+    { id: '2127216051', name: 'カメラ・ビデオカメラ' },
+    { id: '2127213051', name: 'オーディオ・ヘッドフォン' },
+    { id: '2127217051', name: 'スマートフォン・携帯電話' },
+    { id: '2127218051', name: '照明・電気設備' },
+  ],
+  computers: [
+    { id: '2127219051', name: 'パソコン本体' },
+    { id: '2127220051', name: 'PCアクセサリ・周辺機器' },
+    { id: '2127221051', name: 'プリンター・スキャナー' },
+    { id: '2127222051', name: 'ネットワーク機器' },
+    { id: '2127223051', name: 'PCゲーミング' },
+  ],
+  kitchen: [
+    { id: '2016924051', name: 'キッチン用品・調理器具' },
+    { id: '2016925051', name: '収納・インテリア雑貨' },
+    { id: '2016926051', name: '掃除・洗濯用品' },
+    { id: '2016927051', name: '寝具・ベッド用品' },
+    { id: '2016928051', name: 'バス・トイレ用品' },
+  ],
+  sports: [
+    { id: '14304371',   name: 'フィットネス・トレーニング' },
+    { id: '14304381',   name: 'アウトドア・キャンプ' },
+    { id: '14304391',   name: 'スポーツ用品' },
+    { id: '14304401',   name: 'ゴルフ' },
+    { id: '14304411',   name: '自転車・サイクリング' },
+  ],
+  toys: [
+    { id: '2016936051', name: '乳幼児向けおもちゃ' },
+    { id: '2016937051', name: '知育玩具・学習教材' },
+    { id: '2016938051', name: 'ホビー・コレクション' },
+    { id: '637394',     name: 'テレビゲーム' },
+    { id: '2016939051', name: 'フィギュア・ドール' },
+  ],
+  'food-beverage': [
+    { id: '2427015051', name: '飲料・お酒' },
+    { id: '2427016051', name: 'お菓子・スナック' },
+    { id: '2427017051', name: 'パスタ・シリアル・調理食品' },
+    { id: '2427018051', name: '調味料・料理の素' },
+    { id: '2427019051', name: '健康食品・オーガニック' },
+  ],
+  books: [
+    { id: '466284',     name: '文学・評論' },
+    { id: '466282',     name: 'ビジネス・経済' },
+    { id: '466294',     name: '趣味・実用' },
+    { id: '466290',     name: '資格・検定・就職' },
+    { id: '466286',     name: 'コミック・ラノベ' },
+  ],
+  clothing: [
+    { id: '352484011',  name: 'レディースファッション' },
+    { id: '352483011',  name: 'メンズファッション' },
+    { id: '2016968051', name: 'バッグ・財布' },
+    { id: '2016969051', name: 'シューズ' },
+    { id: '2016970051', name: 'アクセサリー・時計' },
+  ],
+};
+
+// サブカテゴリ一覧API
+app.get('/api/subcategories', (req, res) => {
+  const category = req.query.category;
+  const subs = SUBCATEGORIES[category] || [];
+  res.json({ subcategories: subs });
+});
+
 // 1カテゴリ・1ページ分のHTMLから商品を抽出
-function parseProducts(html, categoryId, categoryName, pageOffset = 0) {
-  const rankMatches  = [...html.matchAll(/zg-bdg-text[^>]*>\s*#([0-9]+)/g)].map(m => parseInt(m[1]));
-  const titleMatches = [...html.matchAll(/_cDEzb_p13n-sc-css-line-clamp-[0-9]+_[^>]+>([^<]{10,250})/g)].map(m => m[1].trim());
-  const priceMatches = [...html.matchAll(/_cDEzb_p13n-sc-price_[^>]+>\s*(￥[0-9,]+)/g)].map(m => m[1]);
-  const ratingMatches= [...html.matchAll(/([0-9.]+)つ星のうち([0-9.]+)/g)].map(m => m[2]);
-  const asinMatches  = [...new Set([...html.matchAll(/data-asin="([A-Z0-9]{10})"/g)].map(m => m[1]))];
+function parseProducts(html, categoryId, categoryName, subcatName, pageOffset = 0) {
+  const rankMatches        = [...html.matchAll(/zg-bdg-text[^>]*>\s*#([0-9]+)/g)].map(m => parseInt(m[1]));
+  const titleMatches       = [...html.matchAll(/_cDEzb_p13n-sc-css-line-clamp-[0-9]+_[^>]+>([^<]{10,250})/g)].map(m => m[1].trim());
+  const priceMatches       = [...html.matchAll(/_cDEzb_p13n-sc-price_[^>]+>\s*(￥[0-9,]+)/g)].map(m => m[1]);
+  const ratingMatches      = [...html.matchAll(/([0-9.]+)つ星のうち([0-9.]+)/g)].map(m => m[2]);
+  const reviewCountMatches = [...html.matchAll(/([0-9,]+)個の評価/g)].map(m => m[1]);
+  const asinMatches        = [...new Set([...html.matchAll(/data-asin="([A-Z0-9]{10})"/g)].map(m => m[1]))];
+
+  const displayCatName = subcatName ? `${categoryName} > ${subcatName}` : categoryName;
 
   return asinMatches.map((asin, i) => ({
-    rank:         rankMatches[i]  || (pageOffset + i + 1),
+    rank:          rankMatches[i]        || (pageOffset + i + 1),
     asin,
-    title:        titleMatches[i] || '-',
-    price:        priceMatches[i] || '-',
-    rating:       ratingMatches[i]|| '-',
-    category_id:  categoryId,
-    category_name:categoryName,
-    url:          `https://www.amazon.co.jp/dp/${asin}`,
+    title:         titleMatches[i]       || '-',
+    price:         priceMatches[i]       || '-',
+    rating:        ratingMatches[i]      || '-',
+    review_count:  reviewCountMatches[i] || '-',
+    category_id:   categoryId,
+    category_name: displayCatName,
+    url:           `https://www.amazon.co.jp/dp/${asin}`,
   }));
 }
 
-// 1カテゴリ分（最大100件）を取得
-async function fetchCategory(period, categoryId) {
-  const catName = CATEGORIES[categoryId];
+// 1カテゴリ分（最大100件）を取得。subcatId があればサブカテゴリURL
+async function fetchCategory(period, categoryId, subcatId = '') {
+  const catName    = CATEGORIES[categoryId];
+  const subcatName = subcatId
+    ? (SUBCATEGORIES[categoryId] || []).find(s => s.id === subcatId)?.name || ''
+    : '';
   const headers = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
     'Accept-Language': 'ja-JP,ja;q=0.9',
@@ -169,13 +257,15 @@ async function fetchCategory(period, categoryId) {
 
   const products = [];
   for (const pg of [1, 2]) {
-    const url = `https://www.amazon.co.jp/gp/${period}/${categoryId}/ref=zg_bs_pg_${pg}?ie=UTF8&pg=${pg}`;
+    const basePath = subcatId
+      ? `${period}/${categoryId}/${subcatId}`
+      : `${period}/${categoryId}`;
+    const url = `https://www.amazon.co.jp/gp/${basePath}/ref=zg_bs_pg_${pg}?ie=UTF8&pg=${pg}`;
     try {
       const res = await fetch(url, { headers });
       const html = await res.text();
-      const items = parseProducts(html, categoryId, catName, (pg - 1) * 50);
+      const items = parseProducts(html, categoryId, catName, subcatName, (pg - 1) * 50);
       products.push(...items);
-      // Amazon に負荷をかけないよう少し待つ
       await new Promise(r => setTimeout(r, 800));
     } catch (e) {
       // ページ取得失敗は無視して続行
@@ -184,18 +274,19 @@ async function fetchCategory(period, categoryId) {
   return products;
 }
 
-// Amazon トレンドランキング取得（単一カテゴリ）
+// Amazon トレンドランキング取得（単一カテゴリ・サブカテゴリ対応）
 app.get('/api/trends', async (req, res) => {
   const category = req.query.category || 'hpc';
   const period   = req.query.period   || 'bestsellers';
+  const subcat   = req.query.subcat   || '';
 
   if (!CATEGORIES[category] || !['bestsellers','new-releases'].includes(period)) {
     return res.status(400).json({ error: 'invalid parameter' });
   }
 
   try {
-    const products = await fetchCategory(period, category);
-    res.json({ products, category, period });
+    const products = await fetchCategory(period, category, subcat);
+    res.json({ products, category, period, subcat });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -227,10 +318,10 @@ app.get('/api/trends/all', async (req, res) => {
 
       // BOM付きUTF-8（Excelで文字化けしない）
       const BOM = '\uFEFF';
-      const header = 'カテゴリ,順位,ASIN,商品名,価格,評価,URL\n';
+      const header = 'カテゴリ,順位,ASIN,商品名,価格,評価,レビュー件数,URL\n';
       const rows = allProducts.map(p => {
         const title = p.title.replace(/"/g, '""');
-        return `"${p.category_name}",${p.rank},"${p.asin}","${title}","${p.price}","${p.rating}","${p.url}"`;
+        return `"${p.category_name}",${p.rank},"${p.asin}","${title}","${p.price}","${p.rating}","${p.review_count}","${p.url}"`;
       }).join('\n');
 
       res.send(BOM + header + rows);
